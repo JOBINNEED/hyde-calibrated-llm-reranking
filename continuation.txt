@@ -1,0 +1,366 @@
+================================================================================
+CONTINUATION NOTE — HyDE + Decision-Model Re-Ranking Pipeline (IR project)
+Written: 2026-10-23  |  For: starting a fresh chat
+Working folder: C:\Users\DAIICT B\Downloads\202301258_Rishik\IR
+================================================================================
+
+WHAT THIS FILE IS
+-----------------
+A from-scratch handoff so a new chat can pick up without re-deriving anything.
+It contains: the goal, every requirement/condition I stated, the environment
+and API details, the project layout, the data contracts, the exact results and
+how they were verified, the mistakes found-and-fixed this session, the places
+where the Handbook is WRONG, and the exact next steps. Read the pieces relevant
+to where we are; the "MUST NEVER" and "NEXT STEPS" sections are the most
+important.
+
+
+================================================================================
+1. PROJECT GOAL (one paragraph)
+================================================================================
+Build the "HyDE + decision-model re-ranking" pipeline from the project Handbook
+(HyDE_Clef_Project_Handbook.pdf, extracted to _handbook_text.txt, 69 KB).
+
+In short: for 50 TREC-COVID topic queries, generate 8 hypothetical "answer"
+passages each with a large language model, embed the mean of (query + passages)
+with the Contriever dense retriever to freeze the top-100 candidate docs per
+query, then RE-RANK those frozen candidates with a decision model
+(pplx-decider) and a cross-encoder, and finally evaluate every system against
+the gold relevance judgements.
+
+The pipeline has 5 stages, mapped to numbered Python scripts in scripts/:
+  Stage A  -> scripts/01_download_index.py   (build corpus index + FAISS)
+  Stage 2  -> scripts/02_generate.py         (HyDE generation, 400 passages)
+  Stage 3  -> scripts/03_retrieve.py         (embed + retrieve + freeze 5000)
+  Stage 4  -> scripts/04_*.py                (RE-RANKING: NOT YET BUILT)
+  Stage 5  -> scripts/05_evaluate.py         (evaluate + significance)
+
+Stage 4 is the main remaining work (see section 11).
+
+
+================================================================================
+2. REQUIREMENTS & CONDITIONS I STATED (must keep honoring these)
+================================================================================
+- The Handbook PDF is NOT ground truth. We have modified in certain places. Verify
+  EVERY claim against real sources: ir_datasets (corpus/queries/qrels), the
+  live vLLM endpoint, and on-disk artifacts. Never copy PDF numbers by default.
+- One model resident on the GPU at a time (RTX 5090, 32 GB). Never load two
+  big models simultaneously.
+- Generation is batch=1, fully sequential (one HyDE passage per API call).
+- Use the project venv (uv-managed, Python 3.13). Do NOT run bare `python`/`pip`.
+- Use numbered, reproducible scripts — NOT notebooks — as the source of truth.
+  (The hyde/ notebooks exist only as the upstream reference repo.)
+- Never commit/print API keys, tokens, passwords, or credentials. Redact them
+  as [REDACTED] or "not-needed".
+- Verify each step's real output before claiming it works; re-verify after
+  any change. Show the actual produced artifacts/metrics, not guesses.
+- Prefer explaining the design first, then build once confirmed. (Slow > fast,
+  but complete.)
+
+TERMINAL/ENV GOTCHAS (important — these will bite you)
+- This is Windows; the terminal tool runs through bash/git-bash. Use POSIX
+  syntax. Run WSL commands as `wsl -- <cmd>`.
+- Heredocs corrupt literal backslash escapes inside content (e.g. \max,
+  \n). To write files containing backslashes or \n literally, use write_file,
+  not cat heredocs.
+- A stale terminal cwd (a deleted directory) causes exit 126; reset with
+  workdir=/tmp if that happens.
+
+
+================================================================================
+3. ENVIRONMENT (verified 2026-10-23)
+================================================================================
+- OS: Windows 10, working folder: C:\Users\DAIICT B\Downloads\202301258_Rishik\IR
+- GPU: RTX 5090 (32 GB)
+- Virtualenv: .venv/ (uv-managed). Python 3.13.x, cu132.
+- Activate/run via the venv python explicitly, e.g.:
+    "C:/Users/DAIICT B/Downloads/202301258_Rishik/IR/.venv/Scripts/python.exe" -u <script>
+- Key packages (pinned in requirements.txt): torch==2.14.1+cu132,
+  sentence-transformers, transformers, faiss-cpu, numpy, pandas, scipy,
+  scikit-learn, ranx, ir_datasets, pyyaml, tqdm, requests, matplotlib,
+  rank_bm25, openai.
+- torch is NOT from PyPI; it is installed from the CUDA 13.2 wheel index:
+  uv pip install torch --index-url https://download.pytorch.org/whl/cu132
+- Encoder model used by scripts: facebook/contriever (768-dim).
+- No .git at the IR folder root; the hyde/ subfolder is its own git repo.
+
+
+================================================================================
+4. MODEL & API DETAILS (the live endpoint + the two models)
+================================================================================
+- vLLM server: http://localhost:8000/v1   (the SAME server serves both models,
+  but only one can be resident at a time on the 32 GB GPU).
+- api_key: scripts use api_key="not-needed" (dummy). The endpoint does not need
+  a real key for local model calls. Do not hunt for or store any key.
+
+- MODEL A — the GENERATOR (Stage 2): exposed via vLLM as model "local-active".
+  This is a hybrid REASONING model. Critical behavior:
+    * It writes the abstract into chat.completions message.content.
+    * It ALSO writes a separate "reasoning" trace. Only message.content is
+      ever embedded (02_generate.py reads choice.message.content).
+    * A system prompt named "suppress_reasoning_system" (the Handbook's
+      "Answer directly ... Do not include any thinking..." prompt) is HARMFUL:
+      it makes the model emit ONLY the reasoning trace, so message.content is
+      None. THEREFORE the code sends a user-only prompt and NEVER uses that
+      system prompt. (This is a Handbook-vs-reality conflict; reality wins.)
+    * The reasoning trace consumes a lot of the token budget (observed ~100–
+      1000 tokens), which is why max_tokens had to be large.
+
+- MODEL B — the RE-RANKER / DECISION MODEL (Stage 4, not yet built):
+  vLLM model name "pplx-decider-v1.1-27b" (config: reranker.model).
+  It is invoked with question_type in {noul, score} and a "flash" variant
+  exists too. SWITCHING to this model requires re-loading it on the vLLM
+  server (the generator must be swapped out, because one model at a time).
+
+NOTE FOR NEXT CHAT: before building Stage 4, confirm the vLLM server can serve
+pplx-decider-v1.1-27b. If it is currently loaded with "local-active", it must be
+restarted with the decider model. That is a pre-condition, not an afterthought.
+
+
+================================================================================
+5. PROJECT LAYOUT (what is on disk right now)
+================================================================================
+IR/
+  config.yaml                 # all tunables. NO magic numbers in scripts.
+  _handbook_text.txt          # extracted Handbook (69 KB) — reference only
+  HyDE_Clef_Project_Handbook.pdf # the Handbook PDF
+  requirements.txt            # pinned deps
+  hyde/                       # upstream reference repo (notebooks, approach.png)
+  scripts/
+    01_download_index.py      # Stage A: encode corpus -> corpus_emb.npy + FAISS
+    02_generate.py            # Stage 2: HyDE generation (DONE, 400 passages)
+    03_retrieve.py            # Stage 3: retrieve + freeze candidates (DONE)
+    05_evaluate.py            # Stage 5: evaluate all runs + significance
+    04_*.py                   # Stage 4: RE-RANKING  -- NOT YET CREATED
+    common.py                 # helpers: config load, PROMPT_V1, tokenize,
+                              #   write_trec, jsonl load/append, log()
+    evaluate.py               # ranx wrappers: build_qrels, load_runs,
+                              #   evaluate_system, compare_systems, print
+    load_data.py              # ir_datasets loader (docs/queries/qrels)
+    test_stage1.py            # Stage 1 acceptance test (12 checks)
+    test_strip.py             # test for clean_generated header-stripping
+  artifacts/
+    hyde_docs.jsonl           # 400 HyDE passages (DONE)
+    candidates.jsonl          # 5000 frozen candidates (DONE)
+    retrieve.log              # log of last 03 run
+  runs/
+    S1_bm25.trec, S2_dense.trec, S3_hyde.trec   # 3 run files exist
+    (S4_ce.trec, S5_clef_noul.trec, S6_clef_score.trec,
+     S7_clever_flash.trec will appear after Stage 4)
+  data/
+    cache/
+      corpus_emb.npy          # 191132 x 768, float32, L2-normalized
+      docids.json             # 191132 doc-ids (plain list)
+      faiss.index             # IndexFlatIP, ntotal=191132
+
+
+================================================================================
+6. DATA CONTRACTS (how artifacts are shaped — do not break these)
+================================================================================
+- Contract A/B (JSONL): hyde_docs.jsonl and candidates.jsonl are APPEND-ONLY.
+  json helpers in common.py open JSONL in "a" mode by contract. If you need a
+  fresh file, DELETE it first, then let the script recreate it. Do NOT make
+  jsonl helpers overwrite silently — that silently corrupts the pipeline.
+- hyde_docs.jsonl row schema:
+    {qid, gen_idx, model, prompt_version, temperature, seed, text,
+     n_tokens, truncated, created_at}
+- candidates.jsonl row schema (5 fields, required by re-rankers & eval):
+    {qid, docno, stage_a_rank, query, question}
+- Contract C (TREC run files): "qid Q0 docno score runname" (rank is line
+  order). Higher score = better rank. write_trec() produces these with "w"
+  mode (overwrite), which is correct for run files — different from JSONL.
+- evaluate.py cannot use ranx's built-in .from_file (it expects a 6-field
+  line). It parses 5-field TREC itself and hands scores to Run.from_dict.
+  Do not "simplify" this or 5-field runs will silently fail to load.
+
+
+================================================================================
+7. SCRIPTS — WHAT EACH DOES
+================================================================================
+01_download_index.py  Stage A: pull corpus via ir_datasets, build retrieval
+                      text (title + abstract) per doc, encode with
+                      Contriever, L2-normalize, write corpus_emb.npy + docids,
+                      build a faiss IndexFlatIP index. (This already ran.)
+02_generate.py        Stage 2: for each of 50 queries, 8 sequential single-
+                      sequence generations with prompt PROMPT_V1, cleans the
+                      output (clean_generated), records token/truncation info,
+                      appends to hyde_docs.jsonl. (DONE.)
+03_retrieve.py        Stage 3: loads the frozen corpus index + HyDE docs,
+                      builds S2_dense (query-only) and S3_hyde (mean of query
+                      + 8 passage vectors) ranked lists via FAISS cosine
+                      search, writes S2_dense.trec / S3_hyde.trec and appends
+                      the top-100 candidates (by S3) to candidates.jsonl, and
+                      evaluates S2 vs S3. (DONE.)
+05_evaluate.py        Stage 5: discovers every run file present in runs/,
+                      evaluates vs qrels, writes results/metrics.csv and
+                      results/significance.txt (paired Student's t over topics
+                      via ranx.compare). Will automatically pick up S4–S7
+                      once their run files exist — no edits needed.
+test_stage1.py        Re-loads artifacts from disk and checks 12 conditions
+                      independently (does NOT trust the 01/02/03 logs).
+test_strip.py         Unit test for clean_generated() header-stripping.
+
+
+================================================================================
+8. STAGE 1 — WHAT IS DONE + VERIFIED RESULTS (2026-10-23)
+================================================================================
+STAGE 1 IS COMPLETE and test_stage1.py PASSES 12/12. Numbers are real and were
+re-derived from disk, not copied from logs:
+
+  Corpus index (Stage A):
+    - 191,132 docs, 768-dim, float32, L2-normalized (norm ~1.0, 0 bad)
+    - faiss IndexFlatIP, ntotal=191,132, doc-ids unique (0 dupes)
+
+  BM25 baseline (S1_bm25.trec):
+    - nDCG@10 = 0.5722   (test_stage1 checks |nDCG - 0.5722| <= 0.01)
+
+  HyDE generation (Stage 2): hyde_docs.jsonl
+    - 400 passages = 50 queries x 8, every query has exactly 8
+    - 0 truncated (finish_reason != "length")
+    - 0 leaked leading markdown/section headers
+    - word counts 100–244, mean 122.3 (see caveat 8b below)
+
+  Retrieval + freeze (Stage 3): runs/ + artifacts/candidates.jsonl
+    - S2 dense  nDCG@10 = 0.1224
+    - S3 HyDE   nDCG@10 = 0.4453   (THIS is the headline: +38% over the older
+                                    truncated-doc run which was 0.3241)
+    - candidates.jsonl = 5000 rows = 50 queries x 100, all with the 5-field
+      schema, ranks 1..100 intact, all doc-ids present in the corpus
+    - off-corpus candidates: 0; malformed-field candidates: 0
+
+8a. Why nDCG numbers differ from the Handbook's reference
+    -------------------------------------------------------
+    The Handbook's BM25 reference is 0.656. That number is the Published BEIR
+    reference for a DIFFERENT corpus (the Handbook lists 171,332 docs; our
+    ir_datasets corpus has 192,509 docs reported, of which 191,132 have text).
+    Our 0.5722 is correct for OUR corpus. I confirmed all 26,664 relevant
+    qrel doc-ids exist in our index (0 missing), so this is a corpus-size/
+    composition effect, NOT a mapping bug. Do not try to "reach 0.656"; it is
+    a different dataset's number.
+
+8b. One small cosmetic artifact to know about
+    ------------------------------------------
+    A few HyDE passages (8 of 400) have a trailing token that looks like
+    "Word count: N" appended at the END of the text, produced by the prompt's
+    "Write 80-120 words" instruction. It is HARMLESS for retrieval and fits
+    inside the re-ranker's 6000-char state budget. If you want pristine
+    abstracts, strip a trailing "Word count:" token in 02_generate.py before
+    writing (easy). Not required for correctness.
+
+
+================================================================================
+9. MISTAKE(S) FOUND AND FIXED THIS SESSION (why the pipeline was NOT actually
+   complete before, and what changed — READ BEFORE re-running generation)
+================================================================================
+When re-verifying "is Stage 1 really done?" (a request that triggered this),
+the previously-produced HyDE set was NOT actually clean:
+  (a) Every HyDE passage was truncated at the old max_tokens=224, because the
+      model's separate reasoning trace (100-1000 tokens) ate the token budget
+      and left the abstract cut off mid-sentence.
+  (b) Some passages leaked markdown section headers (**Abstract**, Abstract:,
+      **Background:**). Worse: the model emits STACKED headers, e.g. it writes
+      `Abstract**` then a newline then `Background:**`. The old one-pass
+      cleaner stripped only the FIRST header, leaving the second.
+
+Fixes applied (already saved in the code):
+  * config.yaml: generator.max_tokens 224 -> 1024 -> 2048. Reason: the model
+    emits the abstract in message.content AND a separate reasoning trace; only
+    2048 leaves room for both so none are truncated.
+  * scripts/02_generate.py clean_generated() is now a LOOP that strips ALL
+    leading headers/markdown in turn, and is careful to never strip a real
+    body word (it only strips a header when followed by punctuation/markdown
+    or a newline, never by a real word). This fixes both (a) truncation and
+    (b) leaked/stacked headers. The regenerated set shows 0 truncation and 0
+    header leaks.
+
+These two changes are why the current hyde_docs.jsonl is clean. Re-running 02
+without keeping them reproduces the bad set — so keep them.
+
+
+================================================================================
+10. HARD-WON RULES (non-obvious, do not relearn the hard way)
+================================================================================
+- NEVER use the "suppress_reasoning_system" system prompt. It forces the model
+  to emit only the reasoning trace, leaving message.content = None. The code
+  sends a user-only prompt and omits it. (Handbook says to use it; Handbook is
+  wrong here.)
+- Always read the abstract from choice.message.content. The "reasoning" is a
+  separate field and must NOT be embedded.
+- Use common.tokenize() for cheap deterministic tokenization (BM25). The
+  private token regex is _TOKEN_RE — import via common.tokenize(), not the
+  bare regex (the module does not export TOKEN_RE).
+- Do not trust PDF numbers: corpus size (171,332 vs 191,132/192,509),
+  max_tokens, reference BM25 (0.656), and stage numbering all differ from what
+  actually works. Re-verify each claim against ir_datasets + the endpoint.
+- Append-only JSONL: to regenerate a JSONL artifact, DELETE it first, then run
+  the script fresh. Appending to a stale file silently bloats it.
+- Run scripts with the venv python and the -u flag for unbuffered logs.
+- A background job (e.g. generation) may still be running under a different PID
+  than the notification reports. Check /proc/<pid>/cmdline before trusting a
+  "process gone" notice.
+
+
+================================================================================
+11. NEXT STEPS (where the next chat should start)
+================================================================================
+The immediate next work is STAGE 4 — re-ranking the frozen candidates. Everything
+in Stage 1 (A/2/3) is done, tested, and on disk.
+
+  PCONDITION: Confirm the vLLM server can serve "pplx-decider-v1.1-27b".
+      - Right now it serves "local-active" (the generator). Because only one
+        model fits on the 32 GB GPU, the server must be restarted with the
+        decider model for Stage 4. Verify first.
+
+  STEP 1: Build scripts/04_rerank.py (Stage 4). It should:
+      - Load candidates.jsonl (5000 rows = 50 queries x 100 candidates).
+      - For each (query, question, candidate-doc) triple, ask the decision
+        model pplx-decider-v1.1-27b to score/re-rank, honoring:
+            config.reranker.question_type in {noul, score}
+            config.reranker.max_state_chars = 6000
+            config.reranker.keep_alive = "5m"
+      - Produce the run files it is asked for. Per the Stage-5 SYSTEMS list,
+        the re-ranker systems to produce are:
+            S4  cross-encoder  -> runs/S4_ce.trec   (model: cross-encoder/ms-marco-MiniLM-L-6-v2)
+            S5  Clef noul      -> runs/S5_clef_noul.trec
+            S6  Clef score     -> runs/S6_clef_score.trec
+            S7  Clef flash     -> runs/S7_clever_flash.trec
+        (Decide with the user which of S5/S6/S7 the Handbook actually wants;
+         at minimum get S5 "noul" and S6 "score" working, since the config
+         models them.)
+      - Do NOT touch the frozen candidates.jsonl — it is the controlled input.
+        Only write new run files in runs/.
+
+  STEP 2: Validate each Stage-4 run file like test_stage1.py does for Stage 1
+      (correct schema, 100 docs per query, all doc-ids in corpus).
+
+  STEP 3: Run the full evaluation:
+      "C:/Users/DAIICT B/Downloads/202301258_Rishik/IR/.venv/Scripts/python.exe" -u scripts/05_evaluate.py
+      This will automatically pick up S1-S3 (existing) plus any S4-S7 run
+      files, print a metrics table, and write results/metrics.csv and
+      results/significance.txt.
+
+  STEP 4 (final): Confirm S3 HyDE remains the strongest retrieval baseline and
+      that the re-rankers (S4-S7) improve nDCG@10 over it, with significance.
+
+
+================================================================================
+12. QUICK RESTART COMMANDS (for the next chat)
+================================================================================
+Verify current state (already green, but handy to re-run):
+  <venv python> -u scripts/test_stage1.py          # expect 12/12 PASS
+  <venv python> -u scripts/05_evaluate.py           # evaluate whatever runs exist
+
+If Stage 4 scripts are ever needed to be re-run after edits, delete the
+specific run file first, then regenerate it (append-only JSONL rule applies to
+hyde_docs.jsonl and candidates.jsonl; run .trec files use write/overwrite).
+
+================================================================================
+SUMMARY IN ONE LINE
+================================================================================
+Stage 1 (corpus + 400 clean HyDE passages + 5000 frozen candidates) is DONE and
+12/12-verified (S3 HyDE nDCG@10=0.4453, BM25=0.5722). Remaining work is Stage 4:
+build the re-ranker that scores the frozen candidates with pplx-decider and the
+cross-encoder, then run 05_evaluate.py to compare all systems. Pre-condition:
+the vLLM server must be reloaded to serve pplx-decider-v1.1-27b (only one model
+at a time on the 32 GB GPU).
+================================================================================

@@ -1,0 +1,58 @@
+# =====================================================================
+# All tunables live here. No magic numbers in scripts.
+# =====================================================================
+
+# ---- Dataset ----
+dataset:
+  name: trec-covid
+  split: test
+  # ir_datasets id. TREC-COVID is a CORD-19 collection.
+  ir_id: "cord19/trec-covid"
+
+# ---- Encoder: Contriever dense retriever (matches the HyDE paper) ----
+encoder:
+  model: facebook/contriever
+  batch_size: 256
+  max_length: 350
+
+# ---- Generator: qwen3.8 / Ornith served by vLLM at localhost:8000 ----
+generator:
+  base_url: http://localhost:8000/v1
+  model: local-active
+  n_generations: 8
+  temperature: 0.7
+  prompt_version: v1
+  # The generator is a hybrid reasoning model. It emits the abstract in
+  # message.content and the reasoning in a SEPARATE field; only content is
+  # embedded. The reasoning trace consumes 100-200 tokens, so a small
+  # max_tokens truncates the abstract (was 224 -> every generation cut off
+  # mid-sentence). 224 truncated every abstract; 1024 still let the model's
+  # long reasoning trace starve ~5/400 generations. 2048 leaves ample room for
+  # both the reasoning trace and the full abstract so none are truncated.
+  max_tokens: 2048
+
+# ---- Retrieval ----
+retrieval:
+  top_k: 100
+  include_query_embedding: true
+
+# ---- Re-ranker: pplx-decider (Stage 2). Same vLLM instance, swapped model. ----
+reranker:
+  base_url: http://localhost:8000/v1
+  model: pplx-decider-v1.1-27b
+  question_type: noul      # noul | score
+  keep_alive: "5m"
+  max_state_chars: 6000
+
+# ---- Supervised cross-encoder baseline (S4) ----
+cross_encoder:
+  model: cross-encoder/ms-marco-MiniLM-L-6-v2
+
+# ---- Evaluation ----
+eval:
+  metrics: [ndcg@10, map, precision@10, recall@100]
+  max_p: 0.05
+  # Published BEIR reference (acceptance sanity check).
+  bm25_reference_ndcg10: 0.656
+
+seed: 42

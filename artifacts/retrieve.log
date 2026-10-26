@@ -1,0 +1,14 @@
+[common.py] loaded dataset id=cord19/trec-covid
+[INFO] Opening C:\Users\DAIICT B\.ir_datasets\cord19\2020-07-16/metadata.csv.pklz4\bin with direct file access
+[common.py] corpus docs with text: 191132
+[common.py] queries: 50
+[common.py] qrels topics: 50
+[common.py] corpus index rows: 191132, dim: 768
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights: 100%|██████████| 199/199 [00:00<00:00, 58597.76it/s]
+[common.py] S2 dense: {'ndcg@10': np.float64(0.122397), 'map': np.float64(0.003513), 'precision@10': np.float64(0.132), 'recall@100': np.float64(0.009214)}
+[common.py] S3 HyDE: {'ndcg@10': np.float64(0.445328), 'map': np.float64(0.041133), 'precision@10': np.float64(0.478), 'recall@100': np.float64(0.070736)}
+System                         ndcg@10         mapprecision@10  recall@100
+--------------------------------------------------------------------------
+S2 dense                        0.1224      0.0035      0.1320      0.0092
+S3 HyDE                         0.4453      0.0411      0.4780      0.0707
+[common.py] frozen top-100 candidates -> C:\Users\DAIICT B\Downloads\202301258_Rishik\IR\artifacts\candidates.jsonl

@@ -1,0 +1,25 @@
+system,metric,value
+S1 BM25,ndcg@10,0.572228
+S1 BM25,map,0.068347
+S1 BM25,precision@10,0.638
+S1 BM25,recall@100,0.098274
+S2 Dense,ndcg@10,0.122397
+S2 Dense,map,0.003513
+S2 Dense,precision@10,0.132
+S2 Dense,recall@100,0.009214
+S3 HyDE,ndcg@10,0.445328
+S3 HyDE,map,0.041133
+S3 HyDE,precision@10,0.478
+S3 HyDE,recall@100,0.070736
+S4 Cross-encoder,ndcg@10,0.638221
+S4 Cross-encoder,map,0.05409
+S4 Cross-encoder,precision@10,0.692
+S4 Cross-encoder,recall@100,0.070736
+S5 Clef noul,ndcg@10,0.750436
+S5 Clef noul,map,0.059148
+S5 Clef noul,precision@10,0.76
+S5 Clef noul,recall@100,0.070736
+S6 Clef score,ndcg@10,0.760274
+S6 Clef score,map,0.059293
+S6 Clef score,precision@10,0.77
+S6 Clef score,recall@100,0.070736

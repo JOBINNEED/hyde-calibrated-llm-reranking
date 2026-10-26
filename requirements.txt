@@ -1,0 +1,18 @@
+# Pinned for reproducibility. torch is installed from the CUDA 13.2 index
+# (not PyPI): uv pip install torch --index-url https://download.pytorch.org/whl/cu132
+torch==2.14.1+cu132
+sentence-transformers
+transformers
+faiss-cpu
+numpy
+pandas
+scipy
+scikit-learn
+ranx
+ir_datasets
+pyyaml
+tqdm
+requests
+matplotlib
+rank_bm25
+openai
