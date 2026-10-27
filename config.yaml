@@ -36,17 +36,42 @@ retrieval:
   top_k: 100
   include_query_embedding: true
 
-# ---- Re-ranker: pplx-decider (Stage 2). Same vLLM instance, swapped model. ----
+# ---- Re-ranker: d3 decision model (Stage 2). Same vLLM instance, swapped model. ----
+# d3 is a decision-model family from vLLM Semantic Router (Apache 2.0), published
+# on Ollama as d3:2b / d3:4b / d3:9b / d3:27b. It scores supplied options rather
+# than generating text, over the /v1/systemone endpoint. We serve the 27B
+# checkpoint through vLLM, where it is registered under a served-model-name.
+#
+# TWO KEYS, DELIBERATELY (see CHANGELOG CL-002):
+#   served_model_name -> what the API expects in the payload's "model" field
+#   model_id          -> the real checkpoint identity, stamped into every record
+# Before, the script read a key named `model_active` that did not exist here, so
+# it silently fell back to "local-active" and all 5,000 decisions recorded that
+# as their model. For a project whose contribution is the first IR evaluation of
+# this model, the provenance has to be in the artifact, not in someone's memory.
 reranker:
   base_url: http://localhost:8000/v1
-  model: pplx-decider-v1.1-27b
+  served_model_name: local-active
+  model_id: d3:27b
   question_type: noul      # noul | score
   keep_alive: "5m"
+  # Ollama's d3 packages are documented at a 4096-token context (the 256K in the
+  # model listing does not apply to them). 6000 chars is ~1500 tokens, so the
+  # state fits either way -- but verify against the vLLM deployment before raising.
   max_state_chars: 6000
 
 # ---- Supervised cross-encoder baseline (S4) ----
 cross_encoder:
   model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  max_length: 512
+  # Which candidate fields form the CE's query side. The decision model's state
+  # carries BOTH `query` (terse keyword title, "coronavirus origin") and
+  # `question` (natural language, "what is the origin of COVID-19"). Feeding the
+  # CE `query` alone gave it strictly less information than S5/S6 and put it on
+  # its worst input distribution, since ms-marco-MiniLM was trained on
+  # natural-language questions. Both fields = an information-matched baseline.
+  # Run the single-field variants as an ablation via --query-fields.
+  query_fields: [query, question]
 
 # ---- Evaluation ----
 eval:

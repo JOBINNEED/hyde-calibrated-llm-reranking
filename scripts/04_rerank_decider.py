@@ -76,7 +76,14 @@ def build_state(query: str, question: str, title: str, abstract: str, max_state_
     return state, truncated, len(state)
 
 
-def query_candidate(session, endpoint, model_name, candidate, doc_meta, max_chars, questions_spec):
+def query_candidate(session, endpoint, served_model_name, model_id, candidate,
+                    doc_meta, max_chars, questions_spec):
+    """One decision for one (topic, candidate) pair.
+
+    served_model_name goes in the payload (what the vLLM deployment answers to);
+    model_id is stamped into the record (the real checkpoint, e.g. d3:27b), so
+    every decision carries its own provenance. See CHANGELOG CL-002.
+    """
     qid = str(candidate["qid"])
     docno = str(candidate["docno"])
     stage_a_rank = int(candidate.get("stage_a_rank", 9999))
@@ -87,7 +94,7 @@ def query_candidate(session, endpoint, model_name, candidate, doc_meta, max_char
     state, truncated, state_chars = build_state(query, question, title, abstract, max_chars)
 
     payload = {
-        "model": model_name,
+        "model": served_model_name,
         "state": state,
         "questions": questions_spec
     }
@@ -116,7 +123,8 @@ def query_candidate(session, endpoint, model_name, candidate, doc_meta, max_char
     record = {
         "qid": qid,
         "docid": docno,
-        "model": model_name,
+        "model": model_id,
+        "served_model_name": served_model_name,
         "question_type": "noul",
         "probability": float(prob_noul),
         "confidence": float(conf_noul),
@@ -147,8 +155,14 @@ def main():
 
     # Configuration tunables
     endpoint = cfg.get("reranker", {}).get("base_url", "http://localhost:8000/v1").rstrip("/") + "/systemone"
-    model_name = cfg.get("reranker", {}).get("model_active", "local-active")
-    max_chars = cfg.get("reranker", {}).get("max_state_chars", 6000)
+    rr = cfg.get("reranker", {})
+    # NOTE: the previous code read "model_active", a key that does not exist in
+    # config.yaml, so it silently fell back to "local-active" and every record
+    # was stamped with that instead of the real checkpoint. See CHANGELOG CL-002.
+    served_model_name = rr.get("served_model_name", "local-active")
+    model_id = rr.get("model_id", served_model_name)
+    log(f"decision model: model_id={model_id} served as '{served_model_name}' at {endpoint}")
+    max_chars = rr.get("max_state_chars", 6000)
     num_workers = 32
 
     # Questions specification querying both noul and score
@@ -206,7 +220,8 @@ def main():
                     query_candidate,
                     session,
                     endpoint,
-                    model_name,
+                    served_model_name,
+                    model_id,
                     c,
                     doc_meta,
                     max_chars,

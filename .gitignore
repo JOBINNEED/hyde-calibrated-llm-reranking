@@ -1,0 +1,18 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+
+# Regenerable caches — large, and rebuilt by scripts/01_download_index.py.
+# Run files and results ARE committed: they are the evidence.
+data/cache/
+*.npy
+*.index
+
+# Environments
+.venv/
+venv/
+.env
+
+# OS
+.DS_Store
+Thumbs.db

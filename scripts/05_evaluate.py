@@ -20,6 +20,10 @@ SYSTEMS = [
     ("S2 Dense", "S2_dense.trec"),
     ("S3 HyDE", "S3_hyde.trec"),
     ("S4 Cross-encoder", "S4_ce.trec"),
+    # Input-composition ablations for the CE baseline (CHANGELOG CL-001).
+    # Only evaluated when the corresponding file exists.
+    ("S4b CE (query only)", "S4_ce_query_only.trec"),
+    ("S4c CE (question only)", "S4_ce_question_only.trec"),
     ("S5 Clef noul", "S5_clef_noul.trec"),
     ("S6 Clef score", "S6_clef_score.trec"),
     ("S7 Clef flash", "S7_clef_flash.trec"),
